@@ -10,40 +10,35 @@ import datetime
 import csv
 import requests
 import pytz
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+import logging
+from sqlalchemy.exc import SQLAlchemyError
 from google.transit import gtfs_realtime_pb2
 
-# Import configuration
+# Import configuration and database
 import config
+from models import Base, VehicleUpdate, get_engine, get_session, init_database
 
 # =============================================================================
-# DATABASE MODEL
+# INITIALIZATION
 # =============================================================================
 
-Base = declarative_base()
-
-class VehicleUpdate(Base):
-    """
-    Database model for storing vehicle position and delay data.
-    Contains only the 6 fields required for GNN training.
-    """
-    __tablename__ = 'vehicle_updates'
-    
-    id = Column(Integer, primary_key=True)
-    timestamp = Column(DateTime, nullable=False)  # Query timestamp
-    trip_id = Column(String)                      # Journey identifier
-    vehicle_id = Column(String)                   # Vehicle identifier
-    last_stop_id = Column(String)                 # Last visited stop ID
-    delay_seconds = Column(Integer)               # Calculated delay in seconds
-    latitude = Column(Float)                      # Vehicle position
-    longitude = Column(Float)                     # Vehicle position
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # Database setup
-engine = create_engine(config.DATABASE_URL)
-Session = sessionmaker(bind=engine)
-Base.metadata.create_all(engine)
+try:
+    engine = get_engine()
+    Session = get_session()  # This should be the Session CLASS
+    logger.info("✅ Database connection established")
+    logger.info(f"DEBUG: Session type: {type(Session)}")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize database: {e}")
+    raise
 
 # Timezone setup
 BUDAPEST = pytz.timezone(config.TIMEZONE)
@@ -61,12 +56,26 @@ class DelayCalculator:
     def __init__(self, stop_times_path):
         """Initialize with GTFS stop_times data."""
         self.schedule = self._load_stop_times(stop_times_path)
+        self.final_stops = self._identify_final_stops()
+        
+    def _identify_final_stops(self):
+        """Identify the final stop for each trip to detect endpoints."""
+        logger.info("Identifying final stops for each trip...")
+        final_stops = {}
+        
+        for trip_id, stops in self.schedule.items():
+            if stops:  # Only if trip has stops
+                max_sequence = max(stops.keys())
+                final_stops[trip_id] = max_sequence
+        
+        logger.info(f"Identified final stops for {len(final_stops)} trips")
+        return final_stops
         
     def _load_stop_times(self, stop_times_path):
         """
         Load GTFS stop_times.txt and build schedule lookup dictionary.
         """
-        print("[INFO] Loading GTFS stop_times.txt...")
+        logger.info("Loading GTFS stop_times.txt...")
         schedule = {}
         
         try:
@@ -86,28 +95,36 @@ class DelayCalculator:
                         schedule[trip_id] = {}
                     schedule[trip_id][stop_sequence] = departure_seconds
             
-            print(f"[INFO] Loaded {len(schedule)} trips with {sum(len(stops) for stops in schedule.values())} stop sequences")
+            logger.info(f"Loaded {len(schedule)} trips with {sum(len(stops) for stops in schedule.values())} stop sequences")
             return schedule
             
         except Exception as e:
-            print(f"[ERROR] Failed to load stop_times.txt: {e}")
+            logger.error(f"Failed to load stop_times.txt: {e}")
             return {}
     
     def calculate_delay(self, trip_id, current_stop_sequence, vehicle_timestamp):
         """
         Calculate delay by comparing scheduled vs actual departure time.
+        EXCLUDES delays at final stops (endpoints) to avoid counting waiting time.
+        Returns tuple: (delay_seconds, is_endpoint, delay_calculated)
         """
         # Validate input parameters
         if not trip_id or current_stop_sequence is None:
-            return None
+            return None, False, False
             
         # Check if trip exists in schedule
         if trip_id not in self.schedule:
-            return None
+            return None, False, False
         
         # Check if stop sequence exists for this trip
         if current_stop_sequence not in self.schedule[trip_id]:
-            return None
+            return None, False, False
+        
+        # 🚨 CRITICAL FIX: Skip delay calculation at FINAL STOPS
+        if trip_id in self.final_stops and current_stop_sequence == self.final_stops[trip_id]:
+            if config.VERBOSE_FILTERING:
+                logger.info(f"Endpoint detected - Trip: {trip_id}, Stop: {current_stop_sequence}")
+            return None, True, False  # No delay, is endpoint, not calculated
         
         # Get scheduled departure time
         scheduled_departure = self.schedule[trip_id][current_stop_sequence]
@@ -125,15 +142,21 @@ class DelayCalculator:
         elif time_diff < -12 * 3600:
             time_diff += 24 * 3600
         
+        # Filter unrealistic delay values
         if time_diff < config.MIN_REALISTIC_DELAY or time_diff > config.MAX_REALISTIC_DELAY:
             if config.VERBOSE_FILTERING:
-                print(f"[FILTER] Unrealistic delay filtered: {time_diff}s - Trip: {trip_id}")
-            return None
+                logger.info(f"Unrealistic delay filtered: {time_diff}s - Trip: {trip_id}")
+            return None, False, False  # No delay, not endpoint, not calculated
     
-        return time_diff
+        return time_diff, False, True  # Valid delay, not endpoint, calculated
 
 # Initialize global delay calculator
-delay_calculator = DelayCalculator(config.STOP_TIMES_FILE)
+try:
+    delay_calculator = DelayCalculator(config.STOP_TIMES_FILE)
+    logger.info("✅ Delay calculator initialized successfully")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize delay calculator: {e}")
+    raise
 
 # =============================================================================
 # DATA COLLECTION FUNCTIONS
@@ -148,14 +171,18 @@ def fetch_gtfs_rt_feed():
         response = requests.get(config.VEHICLE_URL, timeout=config.REQUEST_TIMEOUT)
         response.raise_for_status()
         feed.ParseFromString(response.content)
+        logger.debug(f"Fetched {len(feed.entity)} entities from GTFS-RT feed")
         return feed.entity
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Network error fetching GTFS-RT feed: {e}")
+        return []
     except Exception as e:
-        print(f"[ERROR] Failed to fetch GTFS-RT feed: {e}")
+        logger.error(f"Unexpected error fetching GTFS-RT feed: {e}")
         return []
 
 def get_vehicle_positions_with_calculated_delays():
     """
-    Extract vehicle positions and calculate delays.
+    Extract vehicle positions and calculate delays with quality flags.
     """
     vehicle_entities = fetch_gtfs_rt_feed()
     vehicles_data = []
@@ -171,10 +198,14 @@ def get_vehicle_positions_with_calculated_delays():
             last_stop_id = v.stop_id if v.HasField("stop_id") else None
             current_stop_sequence = v.current_stop_sequence if v.HasField("current_stop_sequence") else None
             
-            # Calculate delay
-            delay_seconds = delay_calculator.calculate_delay(
+            # Calculate delay with quality information
+            delay_seconds, is_endpoint, delay_calculated = delay_calculator.calculate_delay(
                 trip_id, current_stop_sequence, v.timestamp
             )
+            
+            # 🚨 FIX: Data quality flags - CORRECT VERSION
+            has_position = v.HasField("position") and v.position.latitude is not None and v.position.longitude is not None
+            has_stop_info = bool(last_stop_id)
             
             vehicle_data = {
                 'timestamp': current_timestamp,
@@ -183,26 +214,33 @@ def get_vehicle_positions_with_calculated_delays():
                 'last_stop_id': last_stop_id,
                 'delay_seconds': delay_seconds,
                 'latitude': v.position.latitude if v.HasField("position") else None,
-                'longitude': v.position.longitude if v.HasField("position") else None
+                'longitude': v.position.longitude if v.HasField("position") else None,
+                # 🚨 FIXED: Data quality flags
+                'has_position': has_position,  # Should be boolean, not longitude!
+                'has_stop_info': has_stop_info,
+                'is_endpoint': is_endpoint,
+                'delay_calculated': delay_calculated
             }
             
             # Only store vehicles with basic identification
             if vehicle_data['trip_id'] and vehicle_data['vehicle_id']:
                 vehicles_data.append(vehicle_data)
     
+    logger.info(f"Processed {len(vehicles_data)} valid vehicle positions")
     return vehicles_data
 
 def save_vehicle_updates(vehicles_data):
     """
-    Save vehicle data to SQLite database.
+    Save vehicle data to SQLite database with quality flags.
     """
     if not vehicles_data:
-        print("[INFO] No vehicle data to save")
+        logger.info("No vehicle data to save")
         return 0
     
     session = Session()
     count = 0
     delays_calculated = 0
+    endpoints_detected = 0
     
     try:
         for vehicle in vehicles_data:
@@ -213,41 +251,57 @@ def save_vehicle_updates(vehicles_data):
                 last_stop_id=vehicle['last_stop_id'],
                 delay_seconds=vehicle['delay_seconds'],
                 latitude=vehicle['latitude'],
-                longitude=vehicle['longitude']
+                longitude=vehicle['longitude'],
+                # Data quality flags
+                has_position=vehicle['has_position'],
+                has_stop_info=vehicle['has_stop_info'],
+                is_endpoint=vehicle['is_endpoint'],
+                delay_calculated=vehicle['delay_calculated']
             )
             session.add(update)
             count += 1
             
-            if vehicle['delay_seconds'] is not None:
+            if vehicle['delay_calculated']:
                 delays_calculated += 1
+                
+            if vehicle['is_endpoint']:
+                endpoints_detected += 1
         
         session.commit()
         
-        # Print statistics
+        # Enhanced statistics logging
         total_vehicles = len(vehicles_data)
-        vehicles_with_position = len([v for v in vehicles_data if v['latitude'] and v['longitude']])
+        vehicles_with_position = len([v for v in vehicles_data if v['has_position']])
+        vehicles_with_stop_info = len([v for v in vehicles_data if v['has_stop_info']])
         
-        print(f"[SUCCESS] Saved {count} vehicle updates at {datetime.datetime.now(BUDAPEST).isoformat()}")
-        print(f"[STATS] Vehicles with calculated delays: {delays_calculated}/{total_vehicles} ({delays_calculated/total_vehicles*100:.1f}%)")
-        print(f"[STATS] With position data: {vehicles_with_position}/{total_vehicles}")
+        logger.info(f"✅ Saved {count} vehicle updates")
+        logger.info(f"📊 Delay calculation: {delays_calculated}/{total_vehicles} ({delays_calculated/total_vehicles*100:.1f}%)")
+        logger.info(f"📊 Endpoints detected: {endpoints_detected}")
+        logger.info(f"📊 Position data: {vehicles_with_position}/{total_vehicles}")
+        logger.info(f"📊 Stop info: {vehicles_with_stop_info}/{total_vehicles}")
         
-        # Delay distribution
+        # Delay distribution (only for calculated delays)
         if delays_calculated > 0:
-            delays = [v['delay_seconds'] for v in vehicles_data if v['delay_seconds'] is not None]
+            delays = [v['delay_seconds'] for v in vehicles_data if v['delay_calculated']]
             early_count = len([d for d in delays if d < -60])
             on_time_count = len([d for d in delays if -60 <= d <= 60])
             late_count = len([d for d in delays if d > 60])
             
-            print(f"[DELAYS] Early (>1min): {early_count}, On time: {on_time_count}, Late (>1min): {late_count}")
-            print(f"[DELAYS] Average delay: {sum(delays)/len(delays):.1f}s")
+            logger.info(f"⏰ Delays - Early: {early_count}, On-time: {on_time_count}, Late: {late_count}")
+            logger.info(f"⏰ Average delay: {sum(delays)/len(delays):.1f}s")
         
+        return count
+        
+    except SQLAlchemyError as e:
+        session.rollback()
+        logger.error(f"Database error during save: {e}")
+        return 0
     except Exception as e:
         session.rollback()
-        print(f"[ERROR] Database save failed: {e}")
+        logger.error(f"Unexpected error during save: {e}")
+        return 0
     finally:
         session.close()
-    
-    return count
 
 # =============================================================================
 # MAIN SCRAPER LOOP
@@ -257,31 +311,44 @@ def run_scraper():
     """
     Main scraper loop - runs continuously with configured interval.
     """
-    print("[INFO] Starting BKK Real-time Vehicle Data Scraper")
-    print("[INFO] ===========================================")
-    print(f"[INFO] Interval: {config.SCRAPER_INTERVAL_SEC} seconds")
-    print(f"[INFO] Delay range: {config.MIN_REALISTIC_DELAY}s to {config.MAX_REALISTIC_DELAY}s")
-    print(f"[INFO] Database: {config.DB_PATH}")
-    print("[INFO] ===========================================")
+    logger.info("🚌 Starting BKK Real-time Vehicle Data Scraper")
+    logger.info("=" * 50)
+    logger.info(f"📅 Interval: {config.SCRAPER_INTERVAL_SEC} seconds")
+    logger.info(f"🎯 Delay range: {config.MIN_REALISTIC_DELAY}s to {config.MAX_REALISTIC_DELAY}s")
+    logger.info(f"💾 Database: {config.DB_PATH}")
+    logger.info("=" * 50)
+    
+    # Initialize database on startup
+    try:
+        init_database()
+        logger.info("✅ Database initialization completed")
+    except Exception as e:
+        logger.error(f"❌ Database initialization failed: {e}")
+        return
     
     while True:
         try:
             cycle_start = time.time()
             
             vehicles_data = get_vehicle_positions_with_calculated_delays()
-            save_vehicle_updates(vehicles_data)
+            records_saved = save_vehicle_updates(vehicles_data)
             
             processing_time = time.time() - cycle_start
             sleep_time = max(1, config.SCRAPER_INTERVAL_SEC - processing_time)
-            print(f"[INFO] Next collection in {sleep_time:.1f} seconds...")
+            
+            if records_saved > 0:
+                logger.info(f"⏰ Next collection in {sleep_time:.1f} seconds...")
+            else:
+                logger.warning(f"⚠️  No records saved, retrying in {sleep_time:.1f} seconds...")
+                
             time.sleep(sleep_time)
             
         except KeyboardInterrupt:
-            print("\n[INFO] Scraper stopped by user - Graceful shutdown")
+            logger.info("🛑 Scraper stopped by user - Graceful shutdown")
             break
         except Exception as e:
-            print(f"[ERROR] Unexpected error: {e}")
-            print(f"[INFO] Retrying in {config.SCRAPER_INTERVAL_SEC} seconds...")
+            logger.error(f"💥 Unexpected error in main loop: {e}")
+            logger.info(f"🔄 Retrying in {config.SCRAPER_INTERVAL_SEC} seconds...")
             time.sleep(config.SCRAPER_INTERVAL_SEC)
 
 if __name__ == "__main__":
