@@ -1,7 +1,16 @@
-numpy==1.26.4
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# PyTorch (CPU)
+torch>=2.0.0
+
+# PyTorch Geometric (core only - optional deps like torch-scatter not required for basic usage)
+torch-geometric>=2.4.0
+
+numpy>=1.24.0
 pandas==2.2.2
 scikit-learn==1.4.2
 matplotlib==3.8.4
+seaborn==0.13.2
 opencv-python-headless==4.9.0.80
 tqdm==4.66.4
 jupyterlab==4.2.1
@@ -11,3 +20,7 @@ sqlalchemy==2.0.30
 gtfs-realtime-bindings==1.0.0
 pytz==2024.1
 python-dotenv==1.0.1
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+joblib==1.4.2
+

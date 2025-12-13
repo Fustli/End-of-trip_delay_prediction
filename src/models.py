@@ -4,6 +4,7 @@ Production-ready with proper error handling and migrations.
 """
 
 import os
+import sys
 import logging
 import datetime
 import pytz
@@ -121,10 +122,10 @@ def get_engine():
                 cursor.execute("PRAGMA synchronous=NORMAL")  # Good balance of safety/performance
                 cursor.close()
                 
-            logger.info(f"✅ Database engine created for: {config.DB_PATH}")
+            logger.info(f"Database engine created for: {config.DB_PATH}")
             
         except Exception as e:
-            logger.error(f"❌ Failed to create database engine: {e}")
+            logger.error(f"Failed to create database engine: {e}")
             raise
     
     return _engine
@@ -135,7 +136,7 @@ def get_session():
     if _Session is None:
         engine = get_engine()
         _Session = sessionmaker(bind=engine)
-        logger.info("✅ Session factory created")
+        logger.info("Session factory created")
     
     return _Session
 
@@ -168,8 +169,8 @@ def init_database():
         # Create all tables
         Base.metadata.create_all(engine)
         
-        logger.info(f"✅ Database initialized successfully at: {os.path.abspath(config.DB_PATH)}")
-        logger.info(f"✅ Table '{VehicleUpdate.__tablename__}' ready with {len(VehicleUpdate.__table__.columns)} columns")
+        logger.info(f"Database initialized successfully at: {os.path.abspath(config.DB_PATH)}")
+        logger.info(f"Table '{VehicleUpdate.__tablename__}' ready with {len(VehicleUpdate.__table__.columns)} columns")
         
         # Log detailed table structure
         columns_info = []
@@ -177,15 +178,15 @@ def init_database():
             index_info = " [INDEXED]" if col.index else ""
             columns_info.append(f"{col.name} ({col.type}){index_info}")
         
-        logger.info(f"📊 Table structure: {', '.join(columns_info)}")
+        logger.info(f"Table structure: {', '.join(columns_info)}")
         
         return True
         
     except SQLAlchemyError as e:
-        logger.error(f"❌ Database initialization failed: {e}")
+        logger.error(f"Database initialization failed: {e}")
         return False
     except Exception as e:
-        logger.error(f"❌ Unexpected error during database initialization: {e}")
+        logger.error(f"Unexpected error during database initialization: {e}")
         return False
 
 def check_database_health():
@@ -198,13 +199,13 @@ def check_database_health():
             record_count = session.query(VehicleUpdate).count()
             recent_records = session.query(VehicleUpdate).order_by(VehicleUpdate.id.desc()).limit(5).all()
             
-            logger.info(f"📈 Database health check passed - {record_count} total records")
-            logger.info(f"📈 Most recent record ID: {recent_records[0].id if recent_records else 'None'}")
+            logger.info(f"Database health check passed - {record_count} total records")
+            logger.info(f"Most recent record ID: {recent_records[0].id if recent_records else 'None'}")
             
             return True
             
     except Exception as e:
-        logger.error(f"❌ Database health check failed: {e}")
+        logger.error(f"Database health check failed: {e}")
         return False
 
 def get_database_stats():
@@ -249,7 +250,7 @@ def cleanup_old_records(days_to_keep=30):
             ).delete()
             
             if deleted_count > 0:
-                logger.info(f"🧹 Cleaned up {deleted_count} records older than {days_to_keep} days")
+                logger.info(f"Cleaned up {deleted_count} records older than {days_to_keep} days")
             
             return deleted_count
             
@@ -271,16 +272,16 @@ if __name__ == "__main__":
         
         if health_ok:
             stats = get_database_stats()
-            print(f"🎉 Database ready for production!")
-            print(f"📊 Current stats:")
+            logger.info("Database ready.")
+            logger.info("Current stats:")
             for key, value in stats.items():
-                print(f"   {key}: {value}")
+                logger.info(f"  {key}: {value}")
             
             # Suggest cleanup if database is large
             if stats.get('total_records', 0) > 1000000:
-                print("💡 Consider running cleanup_old_records() to manage database size")
+                logger.info("Consider running cleanup_old_records() to manage database size")
         else:
-            print("⚠️  Database created but health check failed")
+            logger.warning("Database created but health check failed")
     else:
-        print("❌ Database initialization failed")
-        exit(1)
+        logger.error("Database initialization failed")
+        sys.exit(1)

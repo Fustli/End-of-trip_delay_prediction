@@ -1,104 +1,124 @@
-# End-of-trip delay prediction
+# Deep Learning Class (VITMMA19) Project Work template
 
-## Development Phases
+## Project Details
 
-### Phase 1: Data Collection Infrastructure (Completed ✅)
+### Project Information
 
-Successfully implemented a robust, production-ready data collection system for gathering real-time Budapest public transportation data. This phase involved:
+- **Selected Topic**: End-of-trip delay prediction
+- **Student Name**: Norbert Bendegúz Hasznos
+- **Aiming for +1 Mark**: No
 
-**Key Achievements:**
-- Built a continuous data scraper that collects vehicle positions every minute from BKK FUTÁR API
-- Implemented intelligent delay calculation that excludes endpoint stops to prevent false delay readings when vehicles begin new journeys
-- Designed a comprehensive SQLite database schema with data quality flags
-- Added production features: error handling, logging, background execution, and data validation
-- Currently collecting high-quality data with excellent accuracy metrics
+### Solution Description
 
-**Data Quality & Accuracy Metrics:**
-- **Position Data Accuracy**: 100% (all vehicles have valid GPS coordinates)
-- **Stop Information Accuracy**: 87.9% (reliable stop identification)
-- **Delay Calculation Success Rate**: 60.03% (3,830 valid delay samples from 6,380 total records)
-- **Endpoint Detection Accuracy**: 9.72% (620 endpoints correctly identified and excluded from delay calculation)
-- **Data Collection Rate**: ~900 records per minute (consistent real-time performance)
+We predict end-of-trip delay in seconds from GTFS-RT vehicle position snapshots.
 
-**Delay Statistics (from 3,830 valid samples):**
-- **Average Delay**: -36.2 seconds (buses slightly ahead of schedule)
-- **Delay Range**: -29 minutes to +49 minutes (-1748s to +2934s)
-- **When Late**: Average +1.9 minutes (+113.81 seconds)
-- **When Early**: Average -2.25 minutes (-135.1 seconds)
+The workflow is:
+- Data cleansing: filter invalid/outlier delay values and GPS points outside the Budapest bounding box.
+- Baselines: linear regression and a sequence of Random Forest models with increasingly informative features.
+- GNN models: graph-based regressors that use a stop-to-stop graph inferred from trip sequences.
 
-**Technical Implementation:**
-- Real-time GTFS-RT protobuf feed processing
-- Smart endpoint detection using GTFS stop sequences
-- Data quality monitoring (position validation, stop information, endpoint filtering)
-- Background execution with comprehensive logging
-- SQLite database with time-series optimization
+Model families included:
+- Baseline models (scikit-learn): DummyRegressor, LinearRegression, and RandomForestRegressor variants.
+- GNN Model V1: spatial graph convolution baseline.
+- GNN Model V2: context-aware Graph Attention Network (GAT) with real-time lag features and cyclical time embeddings.
+- GNN Model V3: temporal + spatial model (sequence windowing + GNN) implemented in the V3 notebook.
 
-The system is currently running and has collected 1M+ records with excellent data quality metrics, providing a solid foundation for the upcoming modeling phases.
+### Extra Credit Justification
 
----
-# Feladat kiírás
+[If you selected "Yes" for Aiming for +1 Mark, describe here which specific part of your work (e.g., innovative model architecture, extensive experimentation, exceptional performance) you believe deserves an extra mark.]
 
-## 1. A projekt célja
-A projekt célja egy olyan predikciós rendszer létrehozása, amely képes megbecsülni a budapesti buszjáratok várható késését a végállomásra érkezéskor. A feladat során a statikus menetrendi adatokat (GTFS) és a valós idejű járműkövetési adatokat (FUTÁR API) ötvözzük.  
-A megoldás során a teljes közlekedési hálózatot gráfként modellezzük, és erre építve fejlesztünk különböző komplexitású modelleket, az egyszerű heurisztikáktól egészen a gráf neurális hálókig (GNN). A végső cél az eredmények összehasonlítása és annak megállapítása, hogy a komplexebb GNN modellek nyújtanak-e szignifikáns előnyt az egyszerűbb megközelítésekkel szemben a késések előrejelzésében.
+## Logging Requirements
 
-## 2. Adatforrások és adatgyűjtés
+This repository follows the grading requirement of logging only essential information, with no `print()` statements and no emojis.
 
-### Források
-1. **Statikus GTFS (General Transit Feed Specification)**:  
-   Ez a csomag tartalmazza a teljes budapesti közlekedési hálózat statikus adatait: a járatok útvonalait, a megállók helyzetét és a hivatalos menetrendeket. Ez adja a gráfunk vázát.  
-   **Elérhetőség**: [BKK GTFS Adatok](https://www.bkk.hu)
-   
-2. **BKK FUTÁR API**:  
-   Ez a valós idejű interfész szolgáltatja a járművek aktuális pozícióját, sebességét és a menetrendhez viszonyított késését másodpercben. Ezek a dinamikus adatok adják a modellünk bemeneti jellemzőit.  
-   **Elérhetőség**: [BKK Open Data](https://data.bkk.hu)  
-   **Fontos**: Az API használatához ingyenes regisztráció és API kulcs igénylése szükséges.
+### Where logs go
 
-### Adatgyűjtési folyamat
-A projekt alapját egy robusztus, idősoros adatbázis képezi.  
-- **Ajánlott gyűjtési időszak**: Minimum 2 hét.  
-- **Gyakoriság**: Percenkénti lekérdezés a FUTÁR API-ból a releváns járatok pozíciójára.  
-- **Feladat**: Egy adatgyűjtő szkript írása (pl. Pythonban), amely a megadott időközönként lekérdezi és elmenti a járművek aktuális adatait (járműazonosító, járat, útvonal, pozíció, aktuális késés stb.) egy strukturált formátumba (pl. CSV fájlokba vagy egy adatbázisba).
+- Notebooks and scripts use `src/utils.py::setup_logger` to log to both stdout and a file under `log/`.
+- Expected notebook log files:
+    - `log/data_cleansing.log`
+    - `log/data_visualization.log`
+    - `log/baseline-log.txt`
+    - `log/gnn_model_v1_training.log`
+    - `log/gnn_model_v2_training.log`
+    - `log/gnn_model_v3_training.log`
 
-## 3. Modellezési megközelítés
-A problémát gráf-alapú predikcióként fogjuk fel.
+### What must be logged
 
-### Gráf reprezentáció
-- **Csomópontok (Nodes)**: A megállók a gráf csomópontjai.
-- **Élek (Edges)**: A megállók közötti közvetlen összeköttetések egy adott járat útvonalán.  
-  Az élek tulajdonságai lehetnek például a menetrend szerinti utazási idők.
+- Data: input paths used, successful load confirmation, row counts (before/after filtering), and split sizes.
+- Configuration/hyperparameters actually used (e.g., batch size, learning rate, number of epochs, scheduler settings).
+- Training: per-epoch training and validation metrics (at minimum MAE; optionally RMSE/R²).
+- Evaluation: final test-set metrics (MAE/RMSE/R²).
+- Artifacts: any plots saved under `plots/` with their output paths.
 
-### Modellek
-1. **Baseline heurisztikák**:  
-   Egyszerű alapmodellek, amelyekkel összevethetjük a GNN teljesítményét. Például:
-   - A jelenlegi késés lesz a végső késés.
-   - Az adott járat átlagos késése az adott napszakban.
+### Docker Instructions
 
-2. **Gráf neurális háló (GNN)**:  
-   Egy olyan modell, ahol a csomópontok (megállók) információt cserélnek a szomszédaikkal. Ez lehetővé teszi, hogy a hálózat korábbi szakaszain tapasztalt anomáliák (pl. dugó, torlódás) hatását a modell figyelembe vegye a későbbi megállókra, így a végállomásra vonatkozó predikció során is.
+This project is containerized using Docker. Follow the instructions below to build and run the solution.
+[Adjust the commands that show how do build your container and run it with log output.]
 
-## 4. Adatstruktúra javaslat
-Az adatgyűjtés során érdemes a letöltött adatokat strukturáltan, például több CSV fájlban vagy egy relációs adatbázisban tárolni.
+#### Build
 
-### Javasolt fájlok/táblák:
-- **GTFS adatok**: A letöltött GTFS csomagból kinyert `trips.txt`, `stops.txt`, `stop_times.txt` stb. fájlok.
-- **Valós idejű adatok**: Egy `vehicle_updates.csv` fájl, ami a FUTÁR API-ból percenként gyűjtött adatokat tartalmazza az alábbi oszlopokkal:
-  - `timestamp` (a lekérdezés időpontja)
-  - `trip_id` (a járat azonosítója)
-  - `vehicle_id` (a jármű azonosítója)
-  - `last_stop_id` (az utoljára érintett megálló azonosítója)
-  - `delay_seconds` (az aktuális késés másodpercben)
-  - `latitude`, `longitude` (a jármű pozíciója)
+Run the following command in the root directory of the repository to build the Docker image:
 
-## 5. Adatfeltöltés és felhasználási jogok
-A feldolgozott, tanításra kész adatállományt és a projekthez tartozó kódot az alábbi helyre kell feltölteni:
+```bash
+docker build -t dl-project .
+```
 
-**URL**:
+#### Run
 
-### Feltöltés menete:
-1. Nyisd meg a fenti linket.
-2. Keresd meg az `endoftripdelayprediction` nevű könyvtárat.
-3. A könyvtáron belül hozz létre egy új alkönyvtárat a saját Neptun kódoddal.
-4. Ebbe a könyvtárba töltsd fel a feldolgozott adatokat, a kódokat és az eredményeket bemutató dokumentációt.
+To run the solution, use the following command. You must mount your local data directory to `/app/data` inside the container.
 
-**Fontos**: A feltöltéssel lemondasz az adatokkal kapcsolatos minden jogodról, és hozzájárulsz, hogy az általad gyűjtött és feldolgozott adatokat, valamint a kódokat bárki szabadon felhasználhassa.
+**To capture the logs for submission (required), redirect the output to a file:**
+
+```bash
+docker run -v /absolute/path/to/your/local/data:/app/data dl-project > log/run.log 2>&1
+```
+
+*   Replace `/absolute/path/to/your/local/data` with the actual path to your dataset on your host machine that meets the [Data preparation requirements](#data-preparation).
+*   The `> log/run.log 2>&1` part ensures that all output (standard output and errors) is saved to `log/run.log`.
+*   The container is configured to run every step (data preprocessing, training, evaluation, inference).
+
+
+### File Structure and Functions
+
+The repository is structured as follows:
+
+- **`src/`**: Contains the source code for the machine learning pipeline.
+    - `01-data-scraper.py`: Fetches/updates GTFS-RT vehicle positions (data acquisition).
+    - `02-data-cleanser.py`: Cleans and filters raw vehicle positions into a modeling-ready CSV.
+    - `03-training.py`: Training script for GNN Model V4 (GATv2Conv + GRU).
+    - `04-evaluation.py`: Evaluation script that computes metrics on the test set.
+    - `05-inference.py`: Inference script for running the model on new/unseen data.
+    - `config.py`: Central configuration for paths and hyperparameters.
+    - `utils.py`: Logger setup utilities (file + stdout).
+    - `run.sh`: Shell script that orchestrates the full ML pipeline.
+
+- **`notebook/`**: Contains Jupyter notebooks for analysis and experimentation.
+    - `01_data-cleansing.ipynb`: Data quality filtering and export to cleaned CSV.
+    - `02_data-visualization.ipynb`: Exploratory data analysis and plots.
+    - `03_baseline-model.ipynb`: Baseline models (Linear Regression, Random Forest) and diagnostics.
+    - `04_gnn-modelV1.ipynb`: Spatial GNN baseline (GCN).
+    - `05_gnn-modelV2.ipynb`: Context-aware GAT with lag features.
+    - `06_gnn-modelV3.ipynb`: Temporal + Spatial model (GATConv + GRU).
+    - `07_gnn-modelV4.ipynb`: Final model (GATv2Conv + GRU) - best performance.
+
+- **`models/`**: Trained model artifacts.
+    - `gnn_v4/`: GNN V4 model weights, graph, scalers, and metadata.
+
+- **`log/`**: Contains log files.
+    - `run.log`: Recommended submission log path for script-based runs.
+    - `gnn_model_v4_training.log`: Training logs.
+    - `gnn_model_v4_evaluation.log`: Evaluation logs.
+
+- **`plots/`**: Saved diagnostic plots.
+    - `gnn_model_v4_diagnostics.png`: Evaluation plots (pred vs actual, residuals, error distribution).
+
+- **`data/`**: Data files (mounted via Docker volume).
+    - `vehicle_positions.csv`: Raw scraped data.
+    - `vehicle_positions_cleaned.csv`: Cleaned data ready for modeling.
+    - `predictions.csv`: Model predictions output.
+    - `gtfs/`: Static GTFS schedule files.
+
+- **Root Directory**:
+    - `Dockerfile`: Configuration file for building the Docker image with the necessary environment and dependencies.
+    - `requirements.txt`: List of Python dependencies required for the project.
+    - `README.md`: Project documentation and instructions.

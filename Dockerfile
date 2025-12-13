@@ -1,27 +1,26 @@
-# Base image with PyTorch + CUDA
-FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-devel
+FROM python:3.12-slim
 
-# 2. Set working directory inside the container
 WORKDIR /app
 
-# 3. Install system-level dependencies
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# System deps (lightweight; keeps matplotlib/opencv-headless happy)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
-    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# 4. Copy Python dependencies and install them
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir -r requirements.txt
 
-# 5. Copy application code and run scripts
-COPY ./src .
+# Copy the whole repo so paths like data/, log/, plots/, notebook/ exist
+COPY . .
 
-# 6. Make the run script executable
-RUN chmod +x run.sh
+RUN chmod +x src/run.sh
 
-# 7. Default command when container starts
-CMD ["bash", "run.sh"]
+# Run the full ML pipeline (preprocessing, training, evaluation, inference)
+CMD ["bash", "src/run.sh"]
 

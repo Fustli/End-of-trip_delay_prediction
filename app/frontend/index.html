@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stop-to-stop journey</title>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <style>
+    :root {
+      --bg: #ffffff;
+      --panel: #ffffff;
+      --text: #111827;
+      --muted: #4b5563;
+      --border: #e5e7eb;
+      --soft: #f3f4f6;
+      --danger: #b91c1c;
+      --ok: #065f46;
+      --shadow: 0 1px 0 rgba(17,24,39,0.04);
+    }
+
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+
+    #app { display: grid; grid-template-columns: 380px 1fr; height: 100%; }
+    #sidebar {
+      padding: 14px;
+      border-right: 1px solid var(--border);
+      background: var(--panel);
+      overflow: auto;
+    }
+    #map { height: 100%; }
+
+    h1 { margin: 0 0 8px 0; font-size: 18px; letter-spacing: 0.2px; }
+    .sub { color: var(--muted); font-size: 13px; line-height: 1.35; }
+
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fff;
+      box-shadow: var(--shadow);
+      margin-top: 12px;
+    }
+
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .spacer { flex: 1; }
+    .label { font-weight: 650; font-size: 13px; margin: 8px 0 6px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; }
+    .pill { display: inline-block; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; background: var(--soft); color: #111827; }
+    .pill.ok { border-color: rgba(6,95,70,0.25); background: rgba(6,95,70,0.08); color: var(--ok); }
+    .pill.warn { border-color: rgba(185,28,28,0.25); background: rgba(185,28,28,0.08); color: var(--danger); }
+
+    button {
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 10px;
+      padding: 9px 10px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button:hover { background: var(--soft); }
+    button:active { transform: translateY(1px); }
+    button:focus-visible, select:focus-visible { outline: 2px solid rgba(17,24,39,0.18); outline-offset: 2px; }
+
+    select {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      background: #fff;
+      font-weight: 600;
+    }
+
+    .hint { margin-top: 8px; color: var(--muted); font-size: 13px; }
+    .warn { color: var(--danger); }
+
+    #result { margin-top: 10px; }
+    .resultHeader { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .resultTitle { font-weight: 750; }
+    .leg { border: 1px solid var(--border); border-radius: 12px; padding: 10px; margin-top: 10px; background: #fff; }
+    .legTitle { font-weight: 700; }
+    .kv { display: grid; grid-template-columns: 130px 1fr; gap: 6px 10px; margin-top: 8px; }
+    .k { color: var(--muted); font-size: 12px; }
+    .v { font-size: 12px; }
+    .ok { color: var(--ok); }
+    .muted { color: var(--muted); }
+    .routeLine { margin-top: 6px; font-size: 13px; }
+    .fromto { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+    @media (max-width: 860px) {
+      #app { grid-template-columns: 1fr; grid-template-rows: 44vh 1fr; }
+      #sidebar { border-right: none; border-top: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="sidebar">
+      <h1>Stop-to-stop</h1>
+      <div class="sub">Pick stop A, then pick stop B. The backend finds the fastest scheduled journey within your transfer limit, and optionally shows current delay + V4 predicted delay.</div>
+
+      <div class="card">
+        <div class="row">
+          <span class="pill" id="modePill">Select A</span>
+          <span class="spacer"></span>
+          <label class="row" style="gap:8px;">
+            <span class="mono">Max transfers</span>
+            <select id="maxTransfers">
+              <option value="0">0</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3" selected>3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <label class="row" style="gap:8px;">
+            <span class="mono">Departure time</span>
+            <input type="time" id="departureTime" style="border:1px solid var(--border); border-radius:10px; padding:6px 10px; font-family:inherit;">
+          </label>
+          <button id="useNowBtn" style="padding:6px 10px;">Now</button>
+        </div>
+
+        <div class="label">Selected</div>
+        <div id="selA" class="mono">A: (none)</div>
+        <div id="selB" class="mono">B: (none)</div>
+        <div id="reachHint" class="hint" style="display:none;"></div>
+
+        <div class="row" style="margin-top:10px;">
+          <button id="resetBtn">Reset</button>
+          <span class="muted" style="font-size:12px;">Tip: third click sets a new A.</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="resultHeader">
+          <span class="resultTitle">Result</span>
+          <span id="statusPill" class="pill">Idle</span>
+        </div>
+        <div id="result" style="margin-top:10px; white-space: normal;">Select stop A...</div>
+      </div>
+    </div>
+    <div id="map"></div>
+  </div>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script>
+    const selAEl = document.getElementById('selA');
+    const selBEl = document.getElementById('selB');
+    const resultEl = document.getElementById('result');
+    const resetBtn = document.getElementById('resetBtn');
+    const reachHintEl = document.getElementById('reachHint');
+    const modePillEl = document.getElementById('modePill');
+    const statusPillEl = document.getElementById('statusPill');
+    const maxTransfersEl = document.getElementById('maxTransfers');
+    const departureTimeEl = document.getElementById('departureTime');
+    const useNowBtn = document.getElementById('useNowBtn');
+
+    let selectedA = null;
+    let selectedB = null;
+
+    let markersByStopId = new Map();
+    let reachableSet = null; // null => no filtering; Set(stop_id) when A chosen
+
+    let stopsById = new Map();
+
+    // LayerGroup for stop markers - enables proper filtering by clearing/rebuilding
+    let stopsLayer = null;
+
+    // Initialize departure time to current time
+    function setTimeToNow() {
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, '0');
+      const mins = String(now.getMinutes()).padStart(2, '0');
+      departureTimeEl.value = `${hours}:${mins}`;
+    }
+    setTimeToNow();
+
+    useNowBtn.addEventListener('click', () => {
+      setTimeToNow();
+      if (selectedA) updateReachable();
+      if (selectedA && selectedB) fetchJourney();
+    });
+
+    departureTimeEl.addEventListener('change', () => {
+      if (selectedA) updateReachable();
+      if (selectedA && selectedB) fetchJourney();
+    });
+
+    function getDepartureTime() {
+      // Returns HH:MM:SS format for the API
+      const val = departureTimeEl.value;
+      if (!val) return null;
+      return val + ':00';
+    }
+
+    function getMaxTransfers() {
+      const v = Number.parseInt(maxTransfersEl.value, 10);
+      return Number.isFinite(v) ? v : 3;
+    }
+
+    function setModePill() {
+      if (!selectedA) modePillEl.textContent = 'Select A';
+      else if (!selectedB) modePillEl.textContent = 'Select B';
+      else modePillEl.textContent = 'Done';
+    }
+
+    function setStatus(text, kind) {
+      statusPillEl.textContent = text;
+      statusPillEl.classList.remove('warn', 'ok');
+      if (kind === 'warn') statusPillEl.classList.add('warn');
+      if (kind === 'ok') statusPillEl.classList.add('ok');
+    }
+
+    function stopLabel(stopId) {
+      const s = stopsById.get(String(stopId));
+      if (!s) return String(stopId);
+      const name = s.stop_name || '(no name)';
+      return `${name} (${s.stop_id})`;
+    }
+
+    function setSelected() {
+      selAEl.textContent = selectedA ? `A: ${selectedA.stop_name || '(no name)'} (${selectedA.stop_id})` : 'A: (none)';
+      selBEl.textContent = selectedB ? `B: ${selectedB.stop_name || '(no name)'} (${selectedB.stop_id})` : 'B: (none)';
+      setModePill();
+    }
+
+    function markerSizeForZoom(zoom) {
+      // Keep points readable at all zoom levels.
+      // zoom ~ 11-16 typical: radius 3..8
+      const r = Math.round(zoom * 0.55);
+      return Math.max(3, Math.min(9, r));
+    }
+
+    function updateMarkerSizes() {
+      const z = map.getZoom();
+      const r = markerSizeForZoom(z);
+      for (const m of markersByStopId.values()) {
+        m.setRadius(r);
+      }
+    }
+
+    function applyReachableStyle() {
+      console.log('[DEBUG] applyReachableStyle called, reachableSet:', reachableSet ? reachableSet.size : null);
+      console.log('[DEBUG] markersByStopId size:', markersByStopId.size);
+      let visibleCount = 0;
+      let hiddenCount = 0;
+      for (const [stopId, marker] of markersByStopId.entries()) {
+        const sid = String(stopId);
+        const ok = !reachableSet || reachableSet.has(sid);
+        const isA = selectedA && String(selectedA.stop_id) === sid;
+        const isB = selectedB && String(selectedB.stop_id) === sid;
+
+        // If A is selected: only show reachable B candidates.
+        // Keep A visible regardless.
+        const visible = !reachableSet || ok || isA;
+
+        // Remove hidden markers from the LayerGroup entirely (so they truly disappear)
+        // and re-add them when visible again.
+        if (visible) {
+          visibleCount++;
+          if (!stopsLayer.hasLayer(marker)) stopsLayer.addLayer(marker);
+        } else {
+          hiddenCount++;
+          if (stopsLayer.hasLayer(marker)) stopsLayer.removeLayer(marker);
+          continue;
+        }
+
+        marker.setStyle({
+          opacity: 0.85,
+          fillOpacity: 0.75,
+          weight: (isA || isB) ? 2 : 1,
+          color: (isA || isB) ? '#111827' : '#374151',
+          fillColor: isA ? '#111827' : (isB ? '#4b5563' : '#6b7280'),
+        });
+      }
+      console.log('[DEBUG] applyReachableStyle done. visible:', visibleCount, 'hidden:', hiddenCount);
+    }
+
+    async function updateReachable() {
+      reachableSet = null;
+      reachHintEl.style.display = 'none';
+      reachHintEl.textContent = '';
+      if (!selectedA) {
+        applyReachableStyle();
+        return;
+      }
+
+      // UX: Show loading message but keep stops visible during computation
+      reachHintEl.style.display = 'block';
+      reachHintEl.textContent = 'Computing reachable stops... (this may take a moment)';
+
+      try {
+        setStatus('Loading reachability...');
+        const mt = getMaxTransfers();
+        const depTime = getDepartureTime();
+        let url = `/api/reachable?from_stop_id=${encodeURIComponent(selectedA.stop_id)}&max_transfers=${encodeURIComponent(mt)}&horizon_sec=${encodeURIComponent(6 * 3600)}`;
+        if (depTime) url += `&departure_time=${encodeURIComponent(depTime)}`;
+        console.log('[DEBUG] Fetching reachable:', url);
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        console.log('[DEBUG] Reachable response:', data);
+        console.log('[DEBUG] reachable_stop_ids count:', (data.reachable_stop_ids || []).length);
+        reachableSet = new Set((data.reachable_stop_ids || []).map(String));
+        console.log('[DEBUG] reachableSet size:', reachableSet.size);
+
+        // If B is currently selected but is no longer reachable under the new constraints, clear it.
+        if (selectedB && !reachableSet.has(String(selectedB.stop_id))) {
+          selectedB = null;
+          setSelected();
+          resultEl.textContent = 'Select a reachable stop B...';
+        }
+
+        reachHintEl.style.display = 'block';
+        reachHintEl.textContent = `Pick B from ${reachableSet.size} reachable stops (≤${getMaxTransfers()} transfers, 6h horizon).`;
+        setStatus('Ready', 'ok');
+      } catch (err) {
+        // If reachable query fails, keep everything hidden except A.
+        // This avoids a confusing "feature doesn’t work" feeling.        console.error('[DEBUG] Reachable fetch error:', err);        reachableSet = new Set();
+        reachHintEl.style.display = 'block';
+        reachHintEl.textContent = `Reachable-stops lookup failed (is the backend running?).`;
+        setStatus('Reachability error', 'warn');
+      }
+
+      applyReachableStyle();
+    }
+
+    async function fetchJourney() {
+      if (!selectedA || !selectedB) return;
+      try {
+        setStatus('Routing...');
+        resultEl.textContent = 'Loading...';
+        const mt = getMaxTransfers();
+        const depTime = getDepartureTime();
+        let url = `/api/journey?from_stop_id=${encodeURIComponent(selectedA.stop_id)}&to_stop_id=${encodeURIComponent(selectedB.stop_id)}&max_transfers=${encodeURIComponent(mt)}`;
+        if (depTime) url += `&departure_time=${encodeURIComponent(depTime)}`;
+        const res = await fetch(url);
+        const text = await res.text();
+        if (!res.ok) {
+          resultEl.innerHTML = `<div class="warn" style="font-weight:700;">Error (${res.status})</div><div class="mono" style="margin-top:6px; white-space: pre-wrap;">${escapeHtml(text)}</div>`;
+          setStatus('No route', 'warn');
+          return;
+        }
+        const data = JSON.parse(text);
+
+      function routeTypeLabel(routeType) {
+        const t = Number.parseInt(routeType, 10);
+        if (!Number.isFinite(t)) return null;
+        // GTFS route_type
+        if (t === 0) return 'Tram';
+        if (t === 1) return 'Metro';
+        if (t === 2) return 'Rail / HÉV';
+        if (t === 3) return 'Bus';
+        if (t === 4) return 'Ferry';
+        if (t === 5) return 'Cable car';
+        if (t === 6) return 'Gondola';
+        if (t === 7) return 'Funicular';
+        return `Type ${t}`;
+      }
+
+        function routeDisplay(leg) {
+          // Display route_id as the main identifier (required)
+          // Also show route_short_name as public line label if available
+          const rid = leg.route_id ? String(leg.route_id) : '';
+          const label = leg.route_short_name ? String(leg.route_short_name) : '';
+          if (label && rid) return `Line ${label} (route_id: ${rid})`;
+          if (rid) return `route_id: ${rid}`;
+          return 'Route';
+        }
+
+      const parts = [];
+      const transfers = Math.max(0, (data.legs?.length || 0) - 1);
+      parts.push(`<div class="resultHeader"><div class="resultTitle">Fastest scheduled journey</div><span class="pill">${transfers} transfer(s)</span><span class="pill">${Math.round(data.total_scheduled_time_sec)}s</span></div>`);
+      parts.push(`<div class="hint">From <span class="mono">${escapeHtml(stopLabel(selectedA.stop_id))}</span> to <span class="mono">${escapeHtml(stopLabel(selectedB.stop_id))}</span></div>`);
+
+        for (let i = 0; i < data.legs.length; i++) {
+          const leg = data.legs[i];
+          const title = routeDisplay(leg);
+          const vehicle = routeTypeLabel(leg.route_type);
+          parts.push(`<div class="leg">`);
+          if (i > 0) {
+            const transferStopId = data.legs[i - 1]?.to_stop_id;
+            if (transferStopId) {
+              parts.push(`<div class="muted" style="margin-bottom:6px;"><b>Transfer</b> at <span class="mono">${escapeHtml(stopLabel(transferStopId))}</span></div>`);
+            }
+          }
+          parts.push(`<div class="legTitle">Leg ${i + 1}</div>`);
+          parts.push(`<div class="routeLine">${escapeHtml(title)}${vehicle ? ` <span class="pill" style="margin-left:6px;">${escapeHtml(vehicle)}</span>` : ''}</div>`);
+          parts.push(`<div class="fromto">${escapeHtml(stopLabel(leg.from_stop_id))} → ${escapeHtml(stopLabel(leg.to_stop_id))}</div>`);
+          if (leg.trip_headsign) parts.push(`<div class="muted" style="margin-top:4px;">Headsign: ${escapeHtml(leg.trip_headsign)}</div>`);
+          parts.push(`<div class="kv">`);
+          // Show GTFS route_id clearly labeled
+          parts.push(`<div class="k">GTFS route_id</div><div class="v mono">${escapeHtml(String(leg.route_id || ''))}</div>`);
+          const lineLabel = leg.route_short_name || '';
+          if (lineLabel) {
+            parts.push(`<div class="k">Line (short name)</div><div class="v mono">${escapeHtml(String(lineLabel))}</div>`);
+          }
+          parts.push(`<div class="k">Scheduled</div><div class="v">Depart <span class="mono">${escapeHtml(leg.scheduled_departure_time)}</span> → Arrive <span class="mono">${escapeHtml(leg.scheduled_arrival_time)}</span></div>`);
+          parts.push(`<div class="k">Leg time</div><div class="v">${Math.round(leg.scheduled_travel_time_sec)}s</div>`);
+
+        if (leg.model_status) {
+          if (leg.model_status === 'ok') {
+            parts.push(`<div class="k">V4 predicted</div><div class="v"><span class="ok">Leg delay</span>: <span class="mono">${escapeHtml(String(leg.model_predicted_leg_delay_seconds))}s</span> · Stop delay: <span class="mono">${escapeHtml(String(leg.model_predicted_stop_delay_seconds))}s</span></div>`);
+          } else {
+            parts.push(`<div class="k">V4 model</div><div class="v muted">${escapeHtml(String(leg.model_status))}</div>`);
+          }
+        }
+
+        if (leg.realtime_status && leg.realtime_status !== 'n/a') {
+          if (leg.realtime_status === 'ok') {
+            parts.push(`<div class="k">Current delay</div><div class="v"><span class="mono">${escapeHtml(String(leg.realtime_delay_seconds))}s</span> <span class="muted">(${escapeHtml(String(leg.realtime_method || ''))})</span></div>`);
+          } else {
+            parts.push(`<div class="k">Current delay</div><div class="v muted">${escapeHtml(String(leg.realtime_status))}</div>`);
+          }
+        }
+
+          parts.push(`</div></div>`);
+        }
+
+        resultEl.innerHTML = parts.join('');
+        setStatus('Done', 'ok');
+      } catch (err) {
+        resultEl.innerHTML = `<div class="warn" style="font-weight:700;">Backend not reachable</div><div class="muted" style="margin-top:6px;">The browser could not reach <span class="mono">/api/journey</span>. Start the API server, then reload.</div>`;
+        setStatus('Offline', 'warn');
+      }
+    }
+
+    resetBtn.addEventListener('click', () => {
+      selectedA = null;
+      selectedB = null;
+      reachableSet = null;
+      setSelected();
+      resultEl.textContent = 'Select stop A...';
+      setStatus('Idle');
+      updateReachable();
+    });
+
+    maxTransfersEl.addEventListener('change', () => {
+      // Changing transfers updates reachability + (if B already chosen) re-routes.
+      if (selectedA) updateReachable();
+      if (selectedA && selectedB) fetchJourney();
+    });
+
+    const map = L.map('map');
+    // Initialize stopsLayer as a LayerGroup and add it to the map
+    stopsLayer = L.layerGroup().addTo(map);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    map.on('zoomend', () => {
+      updateMarkerSizes();
+    });
+
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    async function init() {
+      let res;
+      try {
+        res = await fetch('/api/stops');
+      } catch (err) {
+        resultEl.innerHTML = `<div class="warn" style="font-weight:700;">Backend offline</div><div class="muted" style="margin-top:6px;">Could not connect to the API server. Please start it with:<br><span class="mono">venv/bin/python -m uvicorn app.backend.main:app --host 127.0.0.1 --port 8000</span></div>`;
+        setStatus('Offline', 'warn');
+        map.setView([47.4979, 19.0402], 12);
+        return;
+      }
+      if (!res.ok) {
+        resultEl.innerHTML = `<div class="warn" style="font-weight:700;">API Error (${res.status})</div><div class="muted" style="margin-top:6px;">Failed to load stops from backend.</div>`;
+        setStatus('API error', 'warn');
+        map.setView([47.4979, 19.0402], 12);
+        return;
+      }
+      const stops = await res.json();
+
+      stopsById = new Map();
+      for (const s of stops) {
+        if (s && s.stop_id != null) stopsById.set(String(s.stop_id), s);
+      }
+
+      if (!stops.length) {
+        resultEl.textContent = 'No stops returned by /api/stops';
+        map.setView([47.4979, 19.0402], 12);
+        return;
+      }
+
+      const bounds = [];
+
+      for (const s of stops) {
+        if (!Number.isFinite(s.stop_lat) || !Number.isFinite(s.stop_lon)) continue;
+        bounds.push([s.stop_lat, s.stop_lon]);
+        const m = L.circleMarker([s.stop_lat, s.stop_lon], {
+          radius: markerSizeForZoom(map.getZoom() || 13),
+          weight: 1,
+          opacity: 0.8,
+          fillOpacity: 0.7,
+        });
+
+        // Add marker to the LayerGroup (not directly to map)
+        stopsLayer.addLayer(m);
+
+        markersByStopId.set(String(s.stop_id), m);
+
+        const label = `${s.stop_name || '(no name)'}\n${s.stop_id}`;
+        m.bindTooltip(label);
+
+        m.on('click', () => {
+          if (!selectedA) {
+            selectedA = s;
+            selectedB = null;
+            setSelected();
+            resultEl.textContent = 'Select stop B...';
+            setStatus('Ready');
+            updateReachable();
+            return;
+          } else if (!selectedB) {
+            if (reachableSet && !reachableSet.has(String(s.stop_id))) {
+              resultEl.innerHTML = `<div class="warn" style="font-weight:700;">Not reachable</div><div class="muted" style="margin-top:6px;">Pick a highlighted stop B that is reachable within ≤${escapeHtml(String(getMaxTransfers()))} transfers.</div>`;
+              setStatus('Pick reachable B', 'warn');
+              return;
+            }
+            selectedB = s;
+          } else {
+            // third click resets B
+            selectedA = s;
+            selectedB = null;
+            setSelected();
+            resultEl.textContent = 'Select stop B...';
+            setStatus('Ready');
+            updateReachable();
+            return;
+          }
+          setSelected();
+          fetchJourney();
+        });
+      }
+
+      map.fitBounds(bounds);
+      setSelected();
+      applyReachableStyle();
+      updateMarkerSizes();
+      setStatus('Idle');
+    }
+
+    init().catch(err => {
+      // This catch handles errors that escape the try/catch inside init(),
+      // such as JSON parsing errors. Display friendly offline message.
+      console.error('Init error:', err);
+      resultEl.innerHTML = `<div class="warn" style="font-weight:700;">Backend offline</div><div class="muted" style="margin-top:6px;">Could not connect to the API server. Please start it with:<br><span class="mono">venv/bin/python -m uvicorn app.backend.main:app --host 127.0.0.1 --port 8000</span></div>`;
+      setStatus('Offline', 'warn');
+      map.setView([47.4979, 19.0402], 12);
+    });
+  </script>
+</body>
+</html>
