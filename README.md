@@ -150,7 +150,7 @@ The repository is structured as follows:
     - `utils.py`: Logger setup utilities (file + stdout).
     - `run.sh`: Shell script that orchestrates the full DL pipeline.
 
-- **`notebook/`**: Contains Jupyter notebooks for analysis and experimentation.
+- **`notebooks/`**: Contains Jupyter notebooks for analysis and experimentation.
     - `01_data-cleansing.ipynb`: Data quality filtering and export to cleaned CSV.
     - `02_data-visualization.ipynb`: Exploratory data analysis and plots.
     - `03_baseline-model.ipynb`: Baseline models (Linear Regression, Random Forest) and diagnostics.
