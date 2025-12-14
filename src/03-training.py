@@ -47,9 +47,9 @@ from utils import setup_logger
 logger = setup_logger(
     name='gnn_model_v4',
     log_dir=config.LOG_DIR,
-    filename='gnn_model_v4_training.log',
+    filename='run.log',
     level=logging.INFO,
-    mode='w',
+    mode='a',  # Append to run.log
 )
 
 seed = config.SEED
@@ -366,8 +366,22 @@ model = ContextAwareGATv2_GRU_V4(
     dropout=dropout,
 ).to(device)
 
+# Log model architecture summary
 trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-logger.info(f"Model V4 initialized | params(trainable)={trainable_params:,}")
+non_trainable_params = sum(p.numel() for p in model.parameters() if not p.requires_grad)
+total_params = trainable_params + non_trainable_params
+
+logger.info('=== MODEL ARCHITECTURE ===')
+logger.info(f"Model: ContextAwareGATv2_GRU_V4")
+logger.info(f"  Spatial encoder: GATv2Conv(in={graph_data.x.shape[1]}) -> 64*4 -> 128")
+logger.info(f"  Temporal encoder: GRU(in={num_seq_features}, hidden={gru_hidden})")
+logger.info(f"  Fusion MLP: {128 + gru_hidden} -> 256 -> 128 -> 64 -> 1")
+logger.info(f"  Dropout: {dropout}")
+logger.info(f"Parameters:")
+logger.info(f"  Trainable:     {trainable_params:,}")
+logger.info(f"  Non-trainable: {non_trainable_params:,}")
+logger.info(f"  Total:         {total_params:,}")
+logger.info('=' * 30)
 
 
 # =============================================================================

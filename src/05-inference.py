@@ -108,9 +108,9 @@ def main():
     logger = setup_logger(
         name='gnn_model_v4_inference',
         log_dir=config.LOG_DIR,
-        filename='gnn_model_v4_inference.log',
+        filename='run.log',
         level=logging.INFO,
-        mode='w',
+        mode='a',  # Append to run.log
     )
     
     device = torch.device(config.DEVICE)

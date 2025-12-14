@@ -109,65 +109,42 @@ OVERFIT_SINGLE_BATCH = False
 
 
 # =============================================================================
-# 4B. SOTA EXPERIMENT SETTINGS (Notebook-driven)
+# 4B. BENCHMARK TARGET
 # =============================================================================
-# These are intentionally separate from the incremental baseline settings above.
 
 # Leaderboard target (Context-Aware Random Forest)
 CHAMPION_MAE = float(os.getenv("CHAMPION_MAE", "43.18"))
 
-# SOTA V1 (GCN baseline notebook)
-SOTA_V1_BATCH_SIZE = int(os.getenv("SOTA_V1_BATCH_SIZE", "16384"))
-SOTA_V1_LR = float(os.getenv("SOTA_V1_LR", "0.005"))
-SOTA_V1_NUM_EPOCHS = int(os.getenv("SOTA_V1_NUM_EPOCHS", "20"))
+
+# =============================================================================
+# 4C. GNN MODEL V1 SETTINGS (GCN Baseline)
+# =============================================================================
+
+GNN_V1_BATCH_SIZE = int(os.getenv("GNN_V1_BATCH_SIZE", "16384"))
+GNN_V1_LR = float(os.getenv("GNN_V1_LR", "0.005"))
+GNN_V1_NUM_EPOCHS = int(os.getenv("GNN_V1_NUM_EPOCHS", "20"))
 
 
 # =============================================================================
-# 4C. GNN MODEL V1 SETTINGS (Preferred Names; Backwards Compatible)
+# 4D. GNN MODEL V2 SETTINGS (ContextAwareGAT)
 # =============================================================================
-# The notebook and logs refer to "GNN Model V1". Keep existing env var names
-# (SOTA_V1_*) for compatibility, but expose alias constants without "SOTA".
 
-GNN_V1_BATCH_SIZE = SOTA_V1_BATCH_SIZE
-GNN_V1_LR = SOTA_V1_LR
-GNN_V1_NUM_EPOCHS = SOTA_V1_NUM_EPOCHS
+GNN_V2_BATCH_SIZE = int(os.getenv("GNN_V2_BATCH_SIZE", "16384"))
+GNN_V2_EVAL_BATCH_SIZE = int(os.getenv("GNN_V2_EVAL_BATCH_SIZE", str(GNN_V2_BATCH_SIZE)))
+GNN_V2_LR = float(os.getenv("GNN_V2_LR", "0.003"))
+GNN_V2_WEIGHT_DECAY = float(os.getenv("GNN_V2_WEIGHT_DECAY", "0.0"))
+GNN_V2_NUM_EPOCHS = int(os.getenv("GNN_V2_NUM_EPOCHS", "50"))
 
-# SOTA V2 (ContextAwareGAT_V2 notebook)
-SOTA_V2_BATCH_SIZE = int(os.getenv("SOTA_V2_BATCH_SIZE", "16384"))
-SOTA_V2_EVAL_BATCH_SIZE = int(os.getenv("SOTA_V2_EVAL_BATCH_SIZE", str(SOTA_V2_BATCH_SIZE)))
-SOTA_V2_LR = float(os.getenv("SOTA_V2_LR", "0.003"))
-SOTA_V2_WEIGHT_DECAY = float(os.getenv("SOTA_V2_WEIGHT_DECAY", "0.0"))
-SOTA_V2_NUM_EPOCHS = int(os.getenv("SOTA_V2_NUM_EPOCHS", "50"))
-
-# ReduceLROnPlateau defaults (SOTA V2)
-SOTA_V2_SCHED_FACTOR = float(os.getenv("SOTA_V2_SCHED_FACTOR", "0.5"))
-SOTA_V2_SCHED_PATIENCE = int(os.getenv("SOTA_V2_SCHED_PATIENCE", "3"))
-SOTA_V2_SCHED_THRESHOLD = float(os.getenv("SOTA_V2_SCHED_THRESHOLD", "1e-4"))
-SOTA_V2_SCHED_MIN_LR = float(os.getenv("SOTA_V2_SCHED_MIN_LR", "1e-6"))
-SOTA_V2_SCHED_COOLDOWN = int(os.getenv("SOTA_V2_SCHED_COOLDOWN", "0"))
+# ReduceLROnPlateau defaults (V2)
+GNN_V2_SCHED_FACTOR = float(os.getenv("GNN_V2_SCHED_FACTOR", "0.5"))
+GNN_V2_SCHED_PATIENCE = int(os.getenv("GNN_V2_SCHED_PATIENCE", "3"))
+GNN_V2_SCHED_THRESHOLD = float(os.getenv("GNN_V2_SCHED_THRESHOLD", "1e-4"))
+GNN_V2_SCHED_MIN_LR = float(os.getenv("GNN_V2_SCHED_MIN_LR", "1e-6"))
+GNN_V2_SCHED_COOLDOWN = int(os.getenv("GNN_V2_SCHED_COOLDOWN", "0"))
 
 
 # =============================================================================
-# 4D. GNN MODEL V2 SETTINGS (Preferred Names; Backwards Compatible)
-# =============================================================================
-# The notebook and logs refer to "GNN Model V2". Keep existing env var names
-# (SOTA_V2_*) for compatibility, but expose alias constants without "SOTA".
-
-GNN_V2_BATCH_SIZE = SOTA_V2_BATCH_SIZE
-GNN_V2_EVAL_BATCH_SIZE = SOTA_V2_EVAL_BATCH_SIZE
-GNN_V2_LR = SOTA_V2_LR
-GNN_V2_WEIGHT_DECAY = SOTA_V2_WEIGHT_DECAY
-GNN_V2_NUM_EPOCHS = SOTA_V2_NUM_EPOCHS
-
-GNN_V2_SCHED_FACTOR = SOTA_V2_SCHED_FACTOR
-GNN_V2_SCHED_PATIENCE = SOTA_V2_SCHED_PATIENCE
-GNN_V2_SCHED_THRESHOLD = SOTA_V2_SCHED_THRESHOLD
-GNN_V2_SCHED_MIN_LR = SOTA_V2_SCHED_MIN_LR
-GNN_V2_SCHED_COOLDOWN = SOTA_V2_SCHED_COOLDOWN
-
-
-# =============================================================================
-# 4E. GNN MODEL V3 SETTINGS (Temporal + Spatial)
+# 4E. GNN MODEL V3 SETTINGS (GAT + GRU Temporal)
 # =============================================================================
 # Defaults are conservative and derived from V2; override via environment vars.
 
@@ -198,7 +175,7 @@ GNN_V3_SPLIT_BY_TRIP = os.getenv("GNN_V3_SPLIT_BY_TRIP", "True").lower() == "tru
 
 
 # =============================================================================
-# 4F. GNN MODEL V4 SETTINGS (V3 + GATv2Conv)
+# 4F. GNN MODEL V4 SETTINGS (GATv2Conv + GRU Temporal)
 # =============================================================================
 # V4 is intentionally a minimal delta from V3: same temporal/windowing pipeline,
 # but swapping the spatial layer from GATConv -> GATv2Conv.

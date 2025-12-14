@@ -48,9 +48,9 @@ sns.set_style('whitegrid')
 logger = setup_logger(
     name='gnn_model_v4_eval',
     log_dir=config.LOG_DIR,
-    filename='gnn_model_v4_evaluation.log',
+    filename='run.log',
     level=logging.INFO,
-    mode='w',
+    mode='a',  # Append to run.log
 )
 
 seed = config.SEED
@@ -333,7 +333,8 @@ logger.info(f"RMSE (Root Mean Sq Error): {rmse:.2f} seconds")
 logger.info(f"R² Score:                  {r2:.4f}")
 
 champion_mae = config.CHAMPION_MAE
-logger.info(f"VS Context RF ({champion_mae:.2f}s): {champion_mae - mae:+.2f}s difference")
+logger.info(f"Baseline Best (Context-Aware RF): {champion_mae:.2f}s MAE")
+logger.info(f"Improvement over baseline: {champion_mae - mae:+.2f}s ({((champion_mae - mae) / champion_mae) * 100:+.1f}%)")
 
 print("\n" + "="*50)
 print("GNN MODEL V4 EVALUATION RESULTS")
@@ -341,7 +342,8 @@ print("="*50)
 print(f"MAE:  {mae:.2f} seconds")
 print(f"RMSE: {rmse:.2f} seconds")
 print(f"R²:   {r2:.4f}")
-print(f"VS Baseline ({champion_mae:.2f}s): {champion_mae - mae:+.2f}s")
+print(f"Baseline Best (Context-Aware RF): {champion_mae:.2f}s MAE")
+print(f"Improvement: {champion_mae - mae:+.2f}s ({((champion_mae - mae) / champion_mae) * 100:+.1f}%)")
 print("="*50 + "\n")
 
 
